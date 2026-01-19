@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pgplayer"
+version = "1.0.0"
+requires-python = ">=3"
+authors = [
+  {name = "Faakhar Habeeb", email = "faakhar.hzb@gmail.com"},
+]
+description = "pgplayer is a python library that allows you to run videos in pygame.It uses ffmpeg to convert frames from a video into a pygame surface and plays audio using pyaudio."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["player", "video", "audio", "ffmpeg", "pyaudio", "pygame", "pygame-ce", "gamedev", "media"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python"
+]
+dependencies = [
+  "pygame-ce",
+  "ffmpeg-python",
+  "pyaudio",
+  "numpy"
+]
+
+[project.urls]
+Homepage = "https://github.com/faakharhzb/pgplayer"
+Repository = "https://github.com/faakharhzb/pgplayer.git"
+"Bug Tracker" = "https://github.com/faakharhzb/pgplayer/issues"
+
+[tool.setuptools]
+packages = ["pgplayer"]
