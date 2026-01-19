@@ -1,17 +1,12 @@
 # pgplayer
 
-**warning**: pgplayer is still in active developement. It is not recommended to use it as for now. It is also not available on PyPi yet.
+**warning**: pgplayer is still in active developement. It is not recommended to use it as for now.
 
 pgplayer is a python library that allows you to run videos in pygame(-ce). It uses ffmpeg to convert frames from a video into a pygame surface and plays audio using pyaudio.
 
 ## Installation
 
-Install using pip:
-```sh
-pip install pgplayer
-```
-
-Install from source:
+Install using this command:
 ```sh
 pip install https://github.com/faakharhzb/pgplayer/archive/refs/heads/main.zip
 ```
