@@ -68,24 +68,6 @@ class VideoPlayer:
         self.paused = False
         self.stopped = False
 
-        self.video_process = (
-            ffmpeg.input(self.source)
-            .output("pipe:", format="rawvideo", pix_fmt="rgb24")
-            .run_async(pipe_stdout=True, quiet=True)
-        )
-        self.audio_process = (
-            ffmpeg.input(self.source)
-            .output(
-                "pipe:",
-                format="s16le",
-                acodec="pcm_s16le",
-                ac=2,
-                ar=self.frequency,
-                af=f"atempo={self.speed}",
-            )
-            .run_async(pipe_stdout=True, quiet=True)
-        )
-
         self.pyaudio = pyaudio.PyAudio()
         self.stream = self.pyaudio.open(
             format=pyaudio.paInt16,
@@ -155,7 +137,7 @@ class VideoPlayer:
                         continue
 
                     if self.stream.is_stopped():
-                        raise SystemExit
+                        self.stopped = True
 
                     buf = self.audio_process.stdout.read(1024 * 32)
                     if not buf:
