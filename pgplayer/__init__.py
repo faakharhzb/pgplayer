@@ -11,8 +11,7 @@ import pyaudio
 import numpy as np
 
 """
-pgplayer is a python library that allows you to run videos in pygame.
-It uses ffmpeg to convert frames from a video into a pygame surface and plays audio using pyaudio.
+pgplayer is a python library that allows you to run videos in pygame(-ce). It uses ffmpeg to convert frames from a video into a pygame surface and plays audio using pyaudio.
 """
 
 
