@@ -4,11 +4,13 @@ from pgplayer import VideoPlayer
 
 pg.init()
 
-screen = pg.display.set_mode((1280, 720))
+screen = pg.display.set_mode((1280, 720), pg.RESIZABLE)
 w, h = screen.get_size()
 clock = pg.time.Clock()
 
-player = VideoPlayer(os.path.join(os.path.dirname(__file__), "video.mp4"), 0)
+player = VideoPlayer(
+    os.path.join(os.path.dirname(__file__), "video.mp4"), 1
+)
 player.play()
 
 running = True
@@ -25,6 +27,9 @@ while running:
                 player.increase_volume(0.05)
             if event.key == pg.K_LEFT:
                 player.decrease_volume(0.05)
+
+        if event.type == pg.VIDEORESIZE:
+            w, h = event.size
 
     frame = player.get_frame((w, h))
     if frame:

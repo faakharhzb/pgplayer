@@ -3,11 +3,12 @@ import shutil
 import subprocess
 import threading
 import time
+import json
 
 import ffmpeg
 import pygame as pg
 from pygame.typing import Point
-import pyaudio
+import sounddevice as sd
 import numpy as np
 
 """
@@ -47,7 +48,7 @@ class VideoPlayer:
             raise FileNotFoundError(f"File: {source} not found.")
 
         self.source = source
-        self.loop = loop
+        self.loop = max(0, loop)
         self.volume = max(0, min(1.0, volume))
         self.frequency = frequency
         self.speed = max(0.1, min(8.0, speed))
@@ -55,12 +56,12 @@ class VideoPlayer:
         self.data = ffmpeg.probe(self.source)
         self.duration = float(self.data["format"]["duration"])
 
-        self.fps = str(self.data["streams"][0]["avg_frame_rate"])
-        self.fps = self.fps.split("/")
-        self.fps = int(self.fps[0]) / int(self.fps[1])
+        self.fps = eval(self.data["streams"][0]["avg_frame_rate"])
 
-        self.w = int(self.data["streams"][0]["coded_width"])
-        self.h = int(self.data["streams"][0]["coded_height"])
+        self.w = int(self.data["streams"][0]["width"])
+        self.h = int(self.data["streams"][0]["height"])
+
+        self.timestamps = self._extract_timestamps()
 
         self.audio_loop_count = 0
         self.video_loop_count = 0
@@ -76,53 +77,95 @@ class VideoPlayer:
         self.audio_process = (
             ffmpeg.input(self.source)
             .output(
-                "pipe:",
-                format="s16le",
-                acodec="pcm_s16le",
-                ac=2,
-                ar=self.frequency,
-                af=f"atempo={self.speed}",
+                "pipe:", format="s16le", acodec="pcm_s16le", ac=2, ar=self.frequency
             )
             .run_async(pipe_stdout=True, quiet=True)
         )
+        self.audio_size = 0
 
-        self.pyaudio = pyaudio.PyAudio()
-        self.stream = self.pyaudio.open(
-            format=pyaudio.paInt16,
-            channels=2,
-            rate=self.frequency,
-            output=True,
-        )
+        self.stream = sd.OutputStream(self.frequency, channels=2, dtype=np.int16)
 
-        self.frame = pg.Surface((self.w, self.h))
+        self.frame = [pg.Surface((self.w, self.h)), "used"]
+
+        self.audio_thread = None
+        self.video_thread = None
+
+        self.pause_event = threading.Event()
+        self.pause_event.set()
+
+        self.frame_ready = threading.Event()
+        self.frame_ready.set()
+
+        self.frame_lock = threading.Lock()
+
+    def _extract_timestamps(self) -> list:
+        """Extract frame timestamps using ffprobe."""
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "frame=pts_time",
+            "-of",
+            "json",
+            self.source,
+        ]
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )  # didn't use ffmpeg.probe() because it couldn't get frames
+
+        if result.returncode != 0:
+            raise RuntimeError(f"ffprobe failed: {result.stderr}")
+
+        info = json.loads(result.stdout)
+        return [float(f["pts_time"]) for f in info.get("frames", []) if "pts_time" in f]
 
     def _play_video(self) -> None:
         """Play video frames in a loop until stopped."""
-        frames = []
-
         while not self.stopped:
             self.video_process = (
                 ffmpeg.input(self.source)
                 .output("pipe:", format="rawvideo", pix_fmt="rgb24")
                 .run_async(pipe_stdout=True, quiet=True)
             )
+            frame_idx = 0
 
             try:
                 while not self.stopped:
-                    if self.paused:
-                        time.sleep(0.0001)
-                        continue
-
-                    time.sleep((1 / self.fps) / self.speed)
+                    self.pause_event.wait()
 
                     buf = self.video_process.stdout.read(self.w * self.h * 3)
                     if not buf:
-                        break  # EOF
+                        break
 
-                    frame = np.frombuffer(buf, np.uint8).reshape([self.h, self.w, 3])
-                    self.frame = pg.image.frombuffer(
-                        frame.tobytes(), (self.w, self.h), "RGB"
-                    )
+                    pts = (
+                        self.timestamps[frame_idx]
+                        if frame_idx < len(self.timestamps)
+                        else frame_idx / self.fps
+                    ) / self.speed
+                    frame_idx += 1
+
+                    now = time.perf_counter() - self.start
+                    delay = pts - now
+
+                    if delay > 0.005:
+                        time.sleep(min(delay, 0.005))
+                    elif delay < -0.2:
+                        # frame is too late so drop it
+                        continue
+
+                    frame = np.frombuffer(buf, np.uint8).reshape(self.h, self.w, 3)
+                    with self.frame_lock:
+                        self.frame = [
+                            pg.image.frombuffer(
+                                frame.tobytes(), (self.w, self.h), "RGB"
+                            ).convert(),
+                            "unused",
+                        ]
+
+                    time.sleep(1 / self.fps)
 
             finally:
                 self.video_process.kill()
@@ -134,37 +177,39 @@ class VideoPlayer:
 
     def _play_audio(self) -> None:
         """Play video frames in a loop until stopped."""
+        self.stream.start()
+
         while not self.stopped:
+            self.audio_size = 0
             self.audio_process = (
                 ffmpeg.input(self.source)
                 .output(
-                    "pipe:",
-                    format="s16le",
-                    acodec="pcm_s16le",
-                    ac=2,
-                    ar=self.frequency,
-                    af=f"atempo={self.speed}",
+                    "pipe:", format="s16le", acodec="pcm_s16le", ac=2, ar=self.frequency
                 )
                 .run_async(pipe_stdout=True, quiet=True)
             )
 
+            if self.audio_loop_count > 0:
+                self.start = time.perf_counter()
+
             try:
                 while not self.stopped:
-                    if self.paused:
-                        time.sleep(0.0001)
-                        continue
+                    self.pause_event.wait()
 
-                    if self.stream.is_stopped():
-                        raise SystemExit
+                    if self.stream.closed:
+                        self.stopped = True
 
                     buf = self.audio_process.stdout.read(1024 * 32)
                     if not buf:
                         break  # EOF
 
-                    frame = np.frombuffer(buf, np.int16)
+                    frame = np.frombuffer(buf, np.int16).reshape(-1, 2)
                     frame = (frame * self.volume).astype(np.int16)
 
-                    self.stream.write(frame.tobytes())
+                    if not self.stream.closed:
+                        self.stream.write(frame)
+
+                    self.audio_size += len(frame.tobytes())
 
             finally:
                 self.audio_process.kill()
@@ -174,15 +219,28 @@ class VideoPlayer:
                 self.stop()
                 break
 
-    def get_frame(self, size: Point = None) -> pg.Surface:
-        if size:
-            return pg.transform.scale(self.frame, size)
+    def check_frame_status(self) -> None:
+        if self.frame[1] == "used":
+            self.frame_ready.set()
         else:
-            return self.frame
+            self.frame_ready.wait()
+
+    def get_frame(self, size: Point = None) -> pg.Surface:
+        with self.frame_lock:
+            if size and size != (self.w, self.h):
+                self.frame[1] = "used"
+                return pg.transform.scale(self.frame[0], size)
+            else:
+                self.frame[1] = "used"
+                return self.frame[0]
 
     def play(self, size: Point = None) -> None:
-        threading.Thread(target=self._play_video).start()
-        threading.Thread(target=self._play_audio).start()
+        self.start = time.perf_counter()
+        self.video_thread = threading.Thread(target=self._play_video, daemon=True)
+        self.audio_thread = threading.Thread(target=self._play_audio, daemon=True)
+
+        self.video_thread.start()
+        self.audio_thread.start()
 
     def set_volume(self, volume: float) -> None:
         """
@@ -213,10 +271,31 @@ class VideoPlayer:
 
     def toggle_pause(self) -> None:
         """Pauses or resumes the audio and video."""
-        self.paused = not self.paused
+        if self.pause_event.is_set():
+            self.pause_event.clear()
+            self.paused = True
+        else:
+            self.pause_event.set()
+            self.paused = False
 
     def stop(self) -> None:
         """Stops the VideoPlayer class."""
-        self.stopped = True
-        self.stream.close()
-        self.pyaudio.terminate()
+        if not self.stopped:
+            self.stopped = True
+            self.stream.close()
+
+            for i in [self.audio_process, self.video_process]:
+                try:
+                    i.kill()
+                except Exception:
+                    pass
+
+            for i in [self.audio_thread, self.video_thread]:
+                try:
+                    i.join()
+                except Exception:
+                    pass
+
+            print(self.audio_size / 1024 / 1024)
+
+            return
