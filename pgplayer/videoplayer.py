@@ -42,7 +42,7 @@ class VideoPlayer:
             source = io.BytesIO(source)
 
         self.source = source
-        self.speed = max(0.1, min(16.0, speed))
+        self.speed = max(0.1, min(8.0, speed))
         self.volume = max(0, min(1.0, volume))
         self.loop = max(0, loop)
         self.frequency = frequency
@@ -52,6 +52,7 @@ class VideoPlayer:
 
         self.audio_stream = self.audio_container.streams.audio
         if self.audio_stream:
+            self.audio_stream = self.audio_stream[0]
             self.stream = sd.OutputStream(
                 self.frequency,
                 channels=self.audio_stream.channels,
@@ -70,7 +71,8 @@ class VideoPlayer:
         self.fps = self.video_stream.average_rate
         self.fps = float(self.fps.numerator / self.fps.denominator)
 
-        self.duration = self.video_stream.duration
+        self.duration = self.video_stream.duration * self.video_stream.time_base
+        self.duration = self.duration.numerator / self.duration.denominator
 
         self.w = self.video_stream.coded_width
         self.h = self.video_stream.coded_height
@@ -82,16 +84,13 @@ class VideoPlayer:
         self.paused = False
         self.stopped = False
 
-        self.frame = [pg.Surface((self.w, self.h)), "used"]
+        self.frame = pg.Surface((self.w, self.h))
 
         self.audio_thread = None
         self.video_thread = None
 
         self.pause_event = threading.Event()
         self.pause_event.set()
-
-        self.frame_ready = threading.Event()
-        self.frame_ready.set()
 
         self.frame_lock = threading.Lock()
 
@@ -109,7 +108,8 @@ class VideoPlayer:
                 self.pause_event.wait()
 
                 with self.audio_pts_lock:
-                    self.audio_pts = frame.pts * frame.time_base
+                    self.audio_pts = frame.pts * float(frame.time_base)
+                    print(f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts}")
 
                 frame = self.resampler.resample(frame)[0]
                 data = frame.to_ndarray().astype(np.float32)
@@ -120,10 +120,10 @@ class VideoPlayer:
                 self.stream.write(data)
 
             self.audio_loop_count += 1
-            if self.audio_loop_count < self.loop or self.loop == 0:
+            if True:
                 self.audio_container.seek(0)
             else:
-                return
+                self.stop()
 
     def _video_process(self) -> None:
         """
@@ -131,13 +131,7 @@ class VideoPlayer:
         """
         while not self.stopped:
             for i in self.video_container.decode(video=0):
-                if self.frame[1] == "unused":
-                    self.frame_ready.clear()
-                else:
-                    self.frame_ready.set()
-
                 self.pause_event.wait()
-                self.frame_ready.wait()
 
                 if self.stopped:
                     break
@@ -148,12 +142,12 @@ class VideoPlayer:
                     else:
                         audio_pts = 0
 
-                pts = (i.pts * i.time_base) / self.speed
+                pts = float(i.pts * i.time_base) / self.speed
                 delay = pts - audio_pts
 
                 if delay > 0.005:
                     time.sleep(min(delay, 0.005))
-                elif delay < -0.2:
+                elif delay < -0.1:
                     # frame is too late so drop it
                     continue
 
@@ -162,7 +156,7 @@ class VideoPlayer:
                 frame = pg.surfarray.make_surface(frame)
 
                 with self.frame_lock:
-                    self.frame = [frame, "unused"]
+                    self.frame = frame
 
                 time.sleep((1 / self.fps) / self.speed)
 
@@ -170,8 +164,7 @@ class VideoPlayer:
             if self.video_loop_count < self.loop or self.loop == 0:
                 self.video_container.seek(0)
             else:
-                print("video ended.")
-                return
+                self.stop()
 
     def get_frame(self, size: Point = None) -> pg.Surface:
         """
@@ -182,10 +175,9 @@ class VideoPlayer:
         """
         with self.frame_lock:
             if size and self.size != size:
-                self.frame[0] = pg.transform.scale(self.frame[0], size)
+                self.frame = pg.transform.scale(self.frame, size)
 
-            self.frame[1] = "used"
-            return self.frame[0]
+            return self.frame
 
     def start(self) -> None:
         """
@@ -197,6 +189,7 @@ class VideoPlayer:
             )
 
         self.video_thread = threading.Thread(target=self._video_process, daemon=True)
+        self.start_time = time.perf_counter()
 
         if self.has_audio:
             self.audio_thread.start()
@@ -269,15 +262,18 @@ class VideoPlayer:
     def stop(self) -> None:
         """Stops the VideoPlayer class."""
         if not self.stopped:
+            print(f"Duration: {self.duration / self.speed}")
+            print(f"wall-clock Duration: {time.perf_counter() - self.start_time}")
+            with self.audio_pts_lock:
+                print(f"pts duration: {self.audio_pts}")
             self.stopped = True
             self.stream.close()
 
             self.audio_container.close()
             self.video_container.close()
 
-            for i in [self.pause_event, self.frame_ready]:
-                if not i.is_set:
-                    i.set()
+            if not self.pause_event.is_set:
+                self.pause_event.set()
 
             for i in [self.audio_thread, self.video_thread]:
                 try:
