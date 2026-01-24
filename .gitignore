@@ -8,4 +8,6 @@ __pycache__/
 *.so
 *.app
 *.bin
+*.egg-info/
+*.kate-swp
 

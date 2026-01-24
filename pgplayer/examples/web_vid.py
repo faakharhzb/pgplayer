@@ -8,7 +8,9 @@ screen = pg.display.set_mode((1280, 720), pg.RESIZABLE)
 w, h = screen.get_size()
 clock = pg.time.Clock()
 
-player = VideoPlayer(os.path.join(os.path.dirname(__file__), "video.mp4"))
+player = VideoPlayer(
+    "https://www.pexels.com/download/video/28683111/?fps=29.97&h=720&w=1280"
+)
 player.start()
 
 running = True

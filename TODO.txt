@@ -1,3 +1,3 @@
-1. Fix lagging
-2. Add support for buffers as input
-3. Add VideoRecorder class
+1. Make audio be affected by speed
+2. Add VideoRecorder class
+3. Add YouTubePlayer class

@@ -1,8 +1,8 @@
 # pgplayer
 
-**warning**: pgplayer is still in active developement. It is not recommended to use it as for now.
+**warning**: pgplayer is still in active developement. Expect to see all sorts of bugs.
 
-pgplayer is a python library that allows you to run videos in pygame(-ce). It uses ffmpeg to convert frames from a video into a pygame surface and plays audio using sounddevice.
+pgplayer is a python library that allows you to run videos in pygame(-ce). It uses pyAV to convert frames from a video into a pygame surface and plays audio using sounddevice.
 
 ## Installation
 
@@ -13,7 +13,11 @@ pip install https://github.com/faakharhzb/pgplayer/archive/refs/heads/main.zip
 
 ## Dependencies
 
-pgplayer is dependent on many external libraries and programs. It obviously needs pygame(-ce). It uses [ffmpeg](https://ffmpeg.org) to separate video and audio and convert the video into pygame frames, through [ffmpeg-python](https://github.com/kkroening/ffmpeg-python), which provides python bindings for ffmpeg. It uses [sounddevice](https://python-sounddevice.readthedocs.io/en/latest/) to play audio. And it also requires numpy to convert video frames into pygame surfaces and audio frames into playable buffers.
+1. [Python 3.x](https://www.python.org/)
+2. [Pygame Community Edition](https://www.pyga.me/)
+3. [Numpy](https://www.numpy.org/)
+4. [PyAV](https://github.com/PyAV-Org/PyAV)
+5. [sounddevice](https://python-sounddevice.readthedocs.io/en/latest/)
 
 ## Contributing
 
