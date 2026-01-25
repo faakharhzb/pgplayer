@@ -1,4 +1,3 @@
-1. Fix audio not playing
 2. Fix playback speed
 3. Add VideoRecorder class
 4. Add YouTubePlayer class

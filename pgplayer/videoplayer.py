@@ -1,7 +1,6 @@
 import io
 import os
 import sys
-import shutil
 import time
 import threading
 
@@ -21,6 +20,7 @@ class VideoPlayer:
         volume: float = 1,
         loop: int = 1,
         frequency: int = 44100,
+        play_audio: bool = True,
     ) -> None:
         """
         The constructor for the VideoPlayer class.
@@ -44,12 +44,20 @@ class VideoPlayer:
         self.volume = max(0, min(1.0, volume))
         self.loop = max(0, loop)
         self.frequency = frequency
+        self.play_audio = play_audio
 
-        self.audio_container = av.open(self.source)
-        self.video_container = av.open(self.source)
+        if self.play_audio:
+            self.audio_container = av.open(
+                io.BytesIO(self.source)
+                if isinstance(self.source, bytes)
+                else self.source
+            )
+        self.video_container = av.open(
+            io.BytesIO(self.source) if isinstance(self.source, bytes) else self.source
+        )
 
         self.audio_stream = self.audio_container.streams.audio
-        if self.audio_stream:
+        if self.audio_stream and self.play_audio:
             self.audio_stream = self.audio_stream[0]
             self.stream = sd.OutputStream(
                 samplerate=self.frequency,
@@ -93,7 +101,7 @@ class VideoPlayer:
         self.frame_lock = threading.Lock()
 
         self.audio_pts_lock = threading.Lock()
-        self.audio_pts = None
+        self.audio_pts = 0.0
 
     def _audio_process(self) -> None:
         self.stream.start()
@@ -143,7 +151,7 @@ class VideoPlayer:
                     else:
                         audio_pts = 0
 
-                pts = float(i.pts * i.time_base) / self.speed
+                pts = float(i.pts * i.time_base)
                 delay = pts - audio_pts
 
                 if delay > 0.005:
@@ -159,7 +167,7 @@ class VideoPlayer:
                 with self.frame_lock:
                     self.frame = frame
 
-                time.sleep((1 / self.fps) / self.speed)
+                time.sleep((1 / self.fps))
 
             self.video_loop_count += 1
             if self.video_loop_count < self.loop or self.loop == 0:
@@ -184,14 +192,14 @@ class VideoPlayer:
         """
         Starts playing the video and audio.
         """
-        if self.has_audio:
+        if self.has_audio and self.play_audio:
             self.audio_thread = threading.Thread(
                 target=self._audio_process, daemon=True
             )
 
         self.video_thread = threading.Thread(target=self._video_process, daemon=True)
 
-        if self.has_audio:
+        if self.has_audio and self.play_audio:
             self.audio_thread.start()
 
         self.video_thread.start()
@@ -262,18 +270,22 @@ class VideoPlayer:
     def stop(self) -> None:
         """Stops the VideoPlayer class."""
         if not self.stopped:
-            ## for debugging purposes
+            # # for debugging purposes
             # print(f"Duration: {self.duration / self.speed}")
             # with self.audio_pts_lock:
             #     print(f"pts duration: {self.audio_pts}")
 
             self.stopped = True
-            self.stream.close()
 
-            self.audio_container.close()
+            if self.has_audio and self.play_audio:
+                self.audio_container.close()
+                self.stream.abort()
+                self.stream.stop()
+                self.stream.close()
+
             self.video_container.close()
 
-            if not self.pause_event.is_set:
+            if not self.pause_event.is_set():
                 self.pause_event.set()
 
             for i in [self.audio_thread, self.video_thread]:
