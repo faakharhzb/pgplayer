@@ -1,3 +1,4 @@
-1. Make audio be affected by speed
-2. Add VideoRecorder class
-3. Add YouTubePlayer class
+1. Fix audio not playing
+2. Fix playback speed
+3. Add VideoRecorder class
+4. Add YouTubePlayer class

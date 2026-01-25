@@ -1,11 +1,9 @@
-from collections import deque
 import io
 import os
 import sys
 import shutil
 import time
 import threading
-from urllib.parse import urlparse
 
 import pygame as pg
 from pygame.typing import Point
@@ -54,7 +52,7 @@ class VideoPlayer:
         if self.audio_stream:
             self.audio_stream = self.audio_stream[0]
             self.stream = sd.OutputStream(
-                self.frequency,
+                samplerate=self.frequency,
                 channels=self.audio_stream.channels,
                 dtype=np.float32,
             )
@@ -109,7 +107,10 @@ class VideoPlayer:
 
                 with self.audio_pts_lock:
                     self.audio_pts = frame.pts * float(frame.time_base)
-                    print(f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts}")
+                    ## this is for debugging purposes
+                    # print(
+                    #     f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts:.3f}"
+                    # )
 
                 frame = self.resampler.resample(frame)[0]
                 data = frame.to_ndarray().astype(np.float32)
@@ -120,7 +121,7 @@ class VideoPlayer:
                 self.stream.write(data)
 
             self.audio_loop_count += 1
-            if True:
+            if self.audio_loop_count < self.loop or self.loop == 0:
                 self.audio_container.seek(0)
             else:
                 self.stop()
@@ -189,7 +190,6 @@ class VideoPlayer:
             )
 
         self.video_thread = threading.Thread(target=self._video_process, daemon=True)
-        self.start_time = time.perf_counter()
 
         if self.has_audio:
             self.audio_thread.start()
@@ -230,7 +230,7 @@ class VideoPlayer:
         Params:
             - value: float. The value to set the speed as.
         """
-        self.speed = min(16.0, max(1.0, value))
+        self.speed = min(8.0, max(1.0, value))
 
     def increase_playback_speed(self, value: float) -> None:
         """
@@ -262,10 +262,11 @@ class VideoPlayer:
     def stop(self) -> None:
         """Stops the VideoPlayer class."""
         if not self.stopped:
-            print(f"Duration: {self.duration / self.speed}")
-            print(f"wall-clock Duration: {time.perf_counter() - self.start_time}")
-            with self.audio_pts_lock:
-                print(f"pts duration: {self.audio_pts}")
+            ## for debugging purposes
+            # print(f"Duration: {self.duration / self.speed}")
+            # with self.audio_pts_lock:
+            #     print(f"pts duration: {self.audio_pts}")
+
             self.stopped = True
             self.stream.close()
 
