@@ -139,6 +139,7 @@ class VideoPlayer:
         Extract video frames and turn them into pygame Surfaces in a loop
         """
         while not self.stopped:
+            last_time = 0
             for i in self.video_container.decode(video=0):
                 self.pause_event.wait()
 
@@ -151,13 +152,16 @@ class VideoPlayer:
                     else:
                         audio_pts = 0
 
-                pts = float(i.pts * i.time_base)
+                pts = float(i.pts * i.time_base) / self.speed
                 delay = pts - audio_pts
 
                 if delay > 0.005:
                     time.sleep(min(delay, 0.005))
                 elif delay < -0.1:
                     # frame is too late so drop it
+                    continue
+
+                if pts - last_time < 1 / (self.fps * self.speed):
                     continue
 
                 frame = i.to_rgb().to_ndarray()
@@ -167,7 +171,7 @@ class VideoPlayer:
                 with self.frame_lock:
                     self.frame = frame
 
-                time.sleep((1 / self.fps))
+                time.sleep(1 / self.fps)
 
             self.video_loop_count += 1
             if self.video_loop_count < self.loop or self.loop == 0:
