@@ -36,9 +36,6 @@ class VideoPlayer:
 
             - frequency: int. The frequency of the audio. Defaults to 44100.
         """
-        if isinstance(source, bytes):
-            source = io.BytesIO(source)
-
         self.source = source
         self.speed = max(0.1, min(8.0, speed))
         self.volume = max(0, min(1.0, volume))
