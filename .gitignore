@@ -10,4 +10,7 @@ __pycache__/
 *.bin
 *.egg-info/
 *.kate-swp
+*.prof
+pgplayer/examples/file.mp4
+
 

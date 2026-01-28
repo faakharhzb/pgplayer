@@ -1,3 +1,7 @@
+from fractions import Fraction
+import threading
+import time
+import queue
 import av
 import pygame as pg
 import numpy as np
@@ -10,9 +14,9 @@ class VideoRecorder:
         self,
         output_file: str,
         size: Point,
-        frame_rate: int = 60,
+        frame_rate: int = 30,
         video_codec: str = "libx264",
-        video_format: str = "rgb24",
+        video_format: str = "yuv420p",
         frequency: int = 44100,
         record_audio: bool = True,
     ) -> None:
@@ -36,14 +40,16 @@ class VideoRecorder:
         """
         self.output = output_file
         self.size = size
-        self.fps = frame_rate
+        self.fps = Fraction(frame_rate)
         self.video_codec = video_codec
         self.video_format = video_format
+        self.frame_count = 0
 
         self.record_audio = record_audio
         self.frequency = frequency
 
-        self.video_frames: list[pg.Surface] = []
+        self.video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
+        self.compiling = False
 
         self.video_container = av.open(self.output, "w")
         self.video_stream = self.video_container.add_stream(self.video_codec, self.fps)
@@ -51,28 +57,55 @@ class VideoRecorder:
         self.video_stream.height = self.size[1]
         self.video_stream.pix_fmt = self.video_format
 
-    def write_frame(self, frame: pg.Surface) -> None:
-        """
-        Add a frame to the video
-        """
-        self.video_frames.append(frame)
+        self.stopped = False
 
-    def compile_video(self) -> None:
-        """
-        Compile the frames into a video.
-        """
-        for i in self.video_frames:
-            if i.get_size() != self.size:
-                i = pg.transform.scale(i, self.size)
+        self.frame_thread = threading.Thread(target=self._write_frame, daemon=True)
+        self.frame_thread.start()
 
-            arr = pg.surfarray.array3d(i)
-            frame = av.VideoFrame().from_ndarray(arr, format=self.video_format)
+    def _write_frame(self) -> None:
+        while not self.stopped:
+            if self.stopped:
+                self.stop()
+
+            try:
+                frame = self.video_frames.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if frame.get_size() != self.size:
+                frame = pg.transform.scale(frame, self.size)
+
+            arr = pg.surfarray.array3d(frame)
+            arr = np.transpose(arr, (1, 0, 2))
+            frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+
+            frame.pts = self.frame_count
+            frame.time_base = Fraction(1, self.fps)
+            self.frame_count += 1
 
             for j in self.video_stream.encode(frame):
                 self.video_container.mux(j)
 
+    def write_frame(self, frame: pg.Surface) -> None:
+        """
+        Add a frame to the video.
+        """
+        try:
+            self.video_frames.put(frame, False)
+        except queue.Full:
+            self.video_frames.get_nowait()
+            self.video_frames.put(frame, False)
+
     def stop(self) -> None:
+        self.stopped = True
+
+        for i in [self.frame_thread]:
+            if i:
+                i.join()
+
         for i in self.video_stream.encode():
-            container.mux(i)
+            self.video_container.mux(i)
 
         self.video_container.close()
+
+        return

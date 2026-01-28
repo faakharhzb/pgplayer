@@ -123,6 +123,9 @@ class VideoPlayer:
                 data *= self.volume
                 data = np.ascontiguousarray(data)
 
+                if self.stream.closed or self.stopped or not self.stream.active:
+                    self.stop()
+
                 self.stream.write(data)
 
             self.audio_loop_count += 1
@@ -278,14 +281,6 @@ class VideoPlayer:
 
             self.stopped = True
 
-            if self.has_audio and self.play_audio:
-                self.audio_container.close()
-                self.stream.abort()
-                self.stream.stop()
-                self.stream.close()
-
-            self.video_container.close()
-
             if not self.pause_event.is_set():
                 self.pause_event.set()
 
@@ -294,5 +289,13 @@ class VideoPlayer:
                     i.join()
                 except Exception:
                     pass
+
+            if self.has_audio and self.play_audio:
+                self.audio_container.close()
+                self.stream.abort()
+                self.stream.stop()
+                self.stream.close()
+
+            self.video_container.close()
 
             return
