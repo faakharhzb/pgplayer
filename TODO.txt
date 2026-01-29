@@ -1,3 +1,2 @@
-2. Fix playback speed
-3. Add VideoRecorder class
-4. Add YouTubePlayer class
+Create proper VideoRecorder class
+Add support for playing youtube videos in VideoPlayer

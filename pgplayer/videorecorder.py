@@ -14,7 +14,7 @@ class VideoRecorder:
         self,
         output_file: str,
         size: Point,
-        frame_rate: int = 30,
+        frame_rate: int = 60,
         video_codec: str = "libx264",
         video_format: str = "yuv420p",
         frequency: int = 44100,
@@ -49,7 +49,6 @@ class VideoRecorder:
         self.frequency = frequency
 
         self.video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
-        self.compiling = False
 
         self.video_container = av.open(self.output, "w")
         self.video_stream = self.video_container.add_stream(self.video_codec, self.fps)
@@ -61,6 +60,8 @@ class VideoRecorder:
 
         self.frame_thread = threading.Thread(target=self._write_frame, daemon=True)
         self.frame_thread.start()
+
+        self.start_time = time.perf_counter()
 
     def _write_frame(self) -> None:
         while not self.stopped:
@@ -79,9 +80,8 @@ class VideoRecorder:
             arr = np.transpose(arr, (1, 0, 2))
             frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
 
-            frame.pts = self.frame_count
-            frame.time_base = Fraction(1, self.fps)
-            self.frame_count += 1
+            now = time.perf_counter() - self.start_time
+            frame.pts = now / (Fraction(1, int(self.fps)))
 
             for j in self.video_stream.encode(frame):
                 self.video_container.mux(j)
