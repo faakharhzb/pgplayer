@@ -27,9 +27,9 @@ while running:
                 player.decrease_volume(0.05)
 
             if event.key == pg.K_d:
-                player.increase_playback_speed(0.5)
+                player.increase_playback_speed(0.05)
             if event.key == pg.K_a:
-                player.decrease_playback_speed(0.5)
+                player.decrease_playback_speed(0.05)
 
         if event.type == pg.VIDEORESIZE:
             w, h = event.size

@@ -1,6 +1,3 @@
-import io
-import os
-import sys
 import time
 import threading
 
@@ -15,7 +12,7 @@ import numpy as np
 class VideoPlayer:
     def __init__(
         self,
-        source: str | bytes,
+        source: str,
         speed: float = 1,
         volume: float = 1,
         loop: int = 1,
@@ -26,7 +23,7 @@ class VideoPlayer:
         The constructor for the VideoPlayer class.
 
         Params:
-            - source: str | bytes. A file path, a URL or a bytes object. Raises FileNotFoundError if source is a non-existent file path.
+            - source: str | bytes. A file path or a URL. Raises FileNotFoundError if source is a non-existent file path.
 
             - speed: float. The playback speed for the video. Defaults to 1.
 
@@ -44,16 +41,12 @@ class VideoPlayer:
         self.play_audio = play_audio
 
         if self.play_audio:
-            self.audio_container = av.open(
-                io.BytesIO(self.source)
-                if isinstance(self.source, bytes)
-                else self.source
-            )
-        self.video_container = av.open(
-            io.BytesIO(self.source) if isinstance(self.source, bytes) else self.source
-        )
+            self.audio_container = av.open(self.source)
+            self.audio_stream = self.audio_container.streams.audio
+        else:
+            self.audio_container = None
+            self.audio_stream = None
 
-        self.audio_stream = self.audio_container.streams.audio
         if self.audio_stream and self.play_audio:
             self.audio_stream = self.audio_stream[0]
             self.stream = sd.OutputStream(
@@ -69,6 +62,7 @@ class VideoPlayer:
         else:
             self.has_audio = False
 
+        self.video_container = av.open(self.source)
         self.video_stream = self.video_container.streams.video[0]
 
         self.fps = self.video_stream.average_rate
@@ -111,7 +105,7 @@ class VideoPlayer:
                 self.pause_event.wait()
 
                 with self.audio_pts_lock:
-                    self.audio_pts = frame.pts * float(frame.time_base)
+                    self.audio_pts = (frame.pts * float(frame.time_base)) / self.speed
                     ## this is for debugging purposes
                     # print(
                     #     f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts:.3f}"
@@ -122,6 +116,12 @@ class VideoPlayer:
                 data = np.transpose(data)
                 data *= self.volume
                 data = np.ascontiguousarray(data)
+
+                if self.speed != 1:
+                    indices = np.arange(0, len(data), self.speed).astype(int)
+                    indices = indices[indices < len(data)]
+
+                    data = data[indices]
 
                 if self.stream.closed or self.stopped or not self.stream.active:
                     self.stop()
@@ -164,7 +164,7 @@ class VideoPlayer:
                 if pts - last_time < 1 / (self.fps * self.speed):
                     continue
 
-                frame = i.to_rgb().to_ndarray()
+                frame = i.to_ndarray(format="rgb24")
                 frame = np.transpose(frame, (1, 0, 2))
                 frame = pg.surfarray.make_surface(frame)
 
@@ -242,7 +242,7 @@ class VideoPlayer:
         Params:
             - value: float. The value to set the speed as.
         """
-        self.speed = min(8.0, max(1.0, value))
+        self.speed = min(8.0, max(0.1, value))
 
     def increase_playback_speed(self, value: float) -> None:
         """
