@@ -13,7 +13,7 @@ description = "pgplayer is a python library that allows you to run videos in pyg
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["player", "video", "audio", "ffmpeg", "sounddevice", "pygame", "pygame-ce", "gamedev", "media", "pyAV", "numpy"]
+keywords = ["player", "video", "audio", "ffmpeg", "sounddevice", "pygame", "pygame-ce", "gamedev", "media", "pyAV", "numpy", "yt-dlp", "youtube"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python"
@@ -22,7 +22,8 @@ dependencies = [
   "pygame-ce",
   "av",
   "sounddevice",
-  "numpy"
+  "numpy",
+  "yt-dlp"
 ]
 
 [project.urls]

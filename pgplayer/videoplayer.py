@@ -1,5 +1,9 @@
+import os
+import shutil
 import time
 import threading
+import subprocess
+from urllib.parse import urlparse
 
 import pygame as pg
 from pygame.typing import Point
@@ -23,7 +27,7 @@ class VideoPlayer:
         The constructor for the VideoPlayer class.
 
         Params:
-            - source: str | bytes. A file path or a URL. Raises FileNotFoundError if source is a non-existent file path.
+            - source: str | bytes. A file path or a URL. Raises FileNotFoundError if source is a non-existent file path. If `source` is a URL, then it can either be a direct video URL, or a URL for a media site like `youtube.com`. If so, the program `ffmpeg` would need to be installed and available on PATH.
 
             - speed: float. The playback speed for the video. Defaults to 1.
 
@@ -33,7 +37,13 @@ class VideoPlayer:
 
             - frequency: int. The frequency of the audio. Defaults to 44100.
         """
-        self.source = source
+        self.source = self._parse_source(source)
+        print("\n\n\n\n")
+        print(self.source)
+        self.opts = {
+            "headers": "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+        }
+
         self.speed = max(0.1, min(8.0, speed))
         self.volume = max(0, min(1.0, volume))
         self.loop = max(0, loop)
@@ -41,7 +51,7 @@ class VideoPlayer:
         self.play_audio = play_audio
 
         if self.play_audio:
-            self.audio_container = av.open(self.source)
+            self.audio_container = av.open(self.source, options=self.opts)
             self.audio_stream = self.audio_container.streams.audio
         else:
             self.audio_container = None
@@ -62,7 +72,7 @@ class VideoPlayer:
         else:
             self.has_audio = False
 
-        self.video_container = av.open(self.source)
+        self.video_container = av.open(self.source, options=self.opts)
         self.video_stream = self.video_container.streams.video[0]
 
         self.fps = self.video_stream.average_rate
@@ -93,6 +103,36 @@ class VideoPlayer:
 
         self.audio_pts_lock = threading.Lock()
         self.audio_pts = 0.0
+
+    def _parse_source(self, source: str):
+        if os.path.exists(source):
+            return source
+
+        try:
+            subprocess.run(
+                ["yt-dlp", "--skip-download", "--quiet", source],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            is_special = True
+        except subprocess.CalledProcessError:
+            is_special = False
+
+        if is_special:
+            if not shutil.which("ffmpeg"):
+                print("FFmpeg must be installed. https://ffmpeg.com")
+                raise SystemExit
+
+            process = subprocess.run(
+                ["yt-dlp", "--quiet", "-g", source],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return process.stdout
+        else:
+            return source
 
     def _audio_process(self) -> None:
         self.stream.start()

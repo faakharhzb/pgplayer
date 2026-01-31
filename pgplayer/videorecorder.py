@@ -14,7 +14,7 @@ class VideoRecorder:
         self,
         output_file: str,
         size: Point,
-        frame_rate: int = 60,
+        frame_rate: int = 30,
         video_codec: str = "libx264",
         video_format: str = "yuv420p",
         frequency: int = 44100,
@@ -28,7 +28,7 @@ class VideoRecorder:
 
             - size: Point. The dimensions of the video.
 
-            - frame_rate: int. The frame rate of the video. Defaults to 60
+            - frame_rate: int. The frame rate of the video. Defaults to 30
 
             - video_codec: The name of the video codec to use. Defaults to `libx264`.
 
@@ -69,16 +69,16 @@ class VideoRecorder:
                 self.stop()
 
             try:
-                frame = self.video_frames.get(timeout=0.1)
+                surf = self.video_frames.get(timeout=0.1)
             except queue.Empty:
                 continue
 
-            if frame.get_size() != self.size:
-                frame = pg.transform.scale(frame, self.size)
+            if surf.get_size() != self.size:
+                surf = pg.transform.scale(surf, self.size)
 
-            arr = pg.surfarray.array3d(frame)
-            arr = np.transpose(arr, (1, 0, 2))
-            frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+            arr = pg.surfarray.array3d(surf).swapaxes(1, 0)
+
+            frame = av.VideoFrame.from_ndarray(arr)
 
             now = time.perf_counter() - self.start_time
             frame.pts = now / (Fraction(1, int(self.fps)))
