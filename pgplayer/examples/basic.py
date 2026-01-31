@@ -39,7 +39,7 @@ while running:
         screen.blit(frame)
 
     pg.display.flip()
-    clock.tick(player.fps)  # this must be done
+    clock.tick()
 
 player.stop()
 pg.quit()

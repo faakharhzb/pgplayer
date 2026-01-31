@@ -11,9 +11,7 @@ clock = pg.time.Clock()
 player = VideoPlayer(os.path.join(os.path.dirname(__file__), "video.mp4"))
 player.start()
 
-recorder = VideoRecorder(
-    os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h), player.fps
-)
+recorder = VideoRecorder(os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h))
 
 running = True
 while running:
@@ -48,7 +46,7 @@ while running:
     recorder.write_frame(screen)
 
     pg.display.flip()
-    clock.tick(player.fps)  # this must be done
+    clock.tick()
 
 recorder.stop()
 player.stop()
