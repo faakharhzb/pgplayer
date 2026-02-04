@@ -17,8 +17,10 @@ class VideoRecorder:
         frame_rate: int = 30,
         video_codec: str = "libx264",
         video_format: str = "yuv420p",
-        frequency: int = 44100,
         record_audio: bool = True,
+        frequency: int = 44100,
+        channels: int = 2,
+        audio_codec: str = "aac",
     ) -> None:
         """
         The constructor for the VideoRecorder class
@@ -37,6 +39,10 @@ class VideoRecorder:
             - record_audio: bool. Whether or not audio will be recorded. Defaults to True.
 
             - frequency: int. The frequency of the audio. Defaults to 44100
+
+            - channels: int. The amount of audio channels. Defaults to 2.
+
+            - audio_codec: str. The name of the audio codec to use. Defaults to `aac`
         """
         self.output = output_file
         self.size = size
@@ -47,11 +53,33 @@ class VideoRecorder:
 
         self.record_audio = record_audio
         self.frequency = frequency
+        self.channels = channels
+        self.audio_codec = audio_codec
+
+        self.container = av.open(self.output, "w")
+
+        if self.record_audio:
+            self.audio_stream = self.container.add_stream(
+                self.audio_codec, self.frequency
+            )
+            self.audio_stream.layout = "stereo"
+            self.audio_stream.format = "fltp"
+            self.audio_stream.time_base = Fraction(1, self.frequency)
+
+            self.input_stream = sd.InputStream(
+                self.frequency, channels=self.channels, dtype=np.float32
+            )
+
+            self.audio_thread = threading.Thread(target=self._record_audio, daemon=True)
+            self.audio_thread.start()
+        else:
+            self.audio_stream = None
+            self.input_stream = None
+            self.audio_thread = None
 
         self.video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
 
-        self.video_container = av.open(self.output, "w")
-        self.video_stream = self.video_container.add_stream(self.video_codec, self.fps)
+        self.video_stream = self.container.add_stream(self.video_codec, self.fps)
         self.video_stream.width = self.size[0]
         self.video_stream.height = self.size[1]
         self.video_stream.pix_fmt = self.video_format
@@ -61,12 +89,39 @@ class VideoRecorder:
         self.frame_thread = threading.Thread(target=self._write_frame, daemon=True)
         self.frame_thread.start()
 
-        self.start_time = time.perf_counter()
+    def _record_audio(self) -> None:
+        """
+        Gets audio and adds it to the file.
+        """
+        self.input_stream.start()
+
+        pts = 0
+        while not self.stopped:
+            if not self.input_stream.stopped or self.input_stream.closed:
+                data, overflowed = self.input_stream.read(1024)
+                if overflowed:
+                    raise OverflowError("Audio input stream overflowed.")
+
+                data = np.ascontiguousarray(data.T)
+
+                frame = av.AudioFrame.from_ndarray(
+                    data, "fltp", self.audio_stream.layout
+                )
+
+                frame.pts = pts
+                pts += frame.samples
+
+                for i in self.audio_stream.encode(frame):
+                    self.container.mux(i)
 
     def _write_frame(self) -> None:
+        """
+        Writes video frames to the file.
+        """
+        pts = 0
         while not self.stopped:
             if self.stopped:
-                self.stop()
+                break
 
             try:
                 surf = self.video_frames.get(timeout=0.1)
@@ -79,16 +134,20 @@ class VideoRecorder:
             arr = pg.surfarray.array3d(surf).swapaxes(1, 0)
 
             frame = av.VideoFrame.from_ndarray(arr)
+            frame = frame.reformat(format=self.video_format)
 
-            now = time.perf_counter() - self.start_time
-            frame.pts = now / (Fraction(1, int(self.fps)))
+            frame.pts = pts
+            pts += 1
 
-            for j in self.video_stream.encode(frame):
-                self.video_container.mux(j)
+            for i in self.video_stream.encode(frame):
+                self.container.mux(i)
 
     def write_frame(self, frame: pg.Surface) -> None:
         """
         Add a frame to the video.
+
+        Params:
+            - frame: pg.Surface. The surface to add to to the video.
         """
         try:
             self.video_frames.put(frame, False)
@@ -97,15 +156,22 @@ class VideoRecorder:
             self.video_frames.put(frame, False)
 
     def stop(self) -> None:
+        """
+        Stop the recorder.
+        """
         self.stopped = True
 
-        for i in [self.frame_thread]:
+        for i in [self.frame_thread, self.audio_thread]:
             if i:
                 i.join()
 
         for i in self.video_stream.encode():
-            self.video_container.mux(i)
+            self.container.mux(i)
 
-        self.video_container.close()
+        if self.record_audio:
+            for i in self.audio_stream.encode():
+                self.container.mux(i)
 
-        return
+            self.input_stream.close()
+
+        self.container.close()
