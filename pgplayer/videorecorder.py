@@ -17,7 +17,7 @@ class VideoRecorder:
         frame_rate: int = 30,
         video_codec: str = "libx264",
         video_format: str = "yuv420p",
-        record_audio: bool = True,
+        record_audio: bool = False,
         frequency: int = 44100,
         channels: int = 2,
         audio_codec: str = "aac",
@@ -114,11 +114,15 @@ class VideoRecorder:
                 for i in self.audio_stream.encode(frame):
                     self.container.mux(i)
 
+            for i in self.audio_stream.encode():
+                self.container.mux(i)
+
     def _write_frame(self) -> None:
         """
         Writes video frames to the file.
         """
         start = time.perf_counter()
+        prev_pts = None
         while not self.stopped:
             if self.stopped:
                 break
@@ -131,15 +135,22 @@ class VideoRecorder:
             if surf.get_size() != self.size:
                 surf = pg.transform.scale(surf, self.size)
 
-            arr = pg.surfarray.array3d(surf).swapaxes(1, 0)
+            buf = pg.image.tobytes(surf, "RGBA")
 
-            frame = av.VideoFrame.from_ndarray(arr)
+            frame = av.VideoFrame.from_bytes(buf, self.size[0], self.size[1], "rgba")
             frame = frame.reformat(format=self.video_format)
 
-            frame.pts = (time.perf_counter() - start) / (1 / float(self.fps))
+            pts = int((time.perf_counter() - start) / (1 / float(self.fps)))
+            if pts == prev_pts:
+                pts += 1
+            print(pts)
+            frame.pts = pts
 
             for i in self.video_stream.encode(frame):
                 self.container.mux(i)
+
+        for i in self.video_stream.encode():
+            self.container.mux(i)
 
     def write_frame(self, frame: pg.Surface) -> None:
         """
@@ -163,13 +174,6 @@ class VideoRecorder:
         for i in [self.frame_thread, self.audio_thread]:
             if i:
                 i.join()
-
-        for i in self.video_stream.encode():
-            self.container.mux(i)
-
-        if self.record_audio:
-            for i in self.audio_stream.encode():
-                self.container.mux(i)
 
             self.input_stream.close()
 
