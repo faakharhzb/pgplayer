@@ -2,6 +2,7 @@ from fractions import Fraction
 import threading
 import time
 import queue
+
 import av
 import pygame as pg
 import numpy as np
@@ -122,7 +123,6 @@ class VideoRecorder:
         Writes video frames to the file.
         """
         start = time.perf_counter()
-        prev_pts = None
         while not self.stopped:
             if self.stopped:
                 break
@@ -140,14 +140,14 @@ class VideoRecorder:
             frame = av.VideoFrame.from_bytes(buf, self.size[0], self.size[1], "rgba")
             frame = frame.reformat(format=self.video_format)
 
-            pts = int((time.perf_counter() - start) / (1 / float(self.fps)))
-            if pts == prev_pts:
-                pts += 1
-            print(pts)
-            frame.pts = pts
+            now = int((time.perf_counter() - start) * float(self.fps))
+            frame.pts = now
+            frame.time_base = Fraction(1, self.fps)
 
             for i in self.video_stream.encode(frame):
                 self.container.mux(i)
+
+            time.sleep(float(frame.time_base))
 
         for i in self.video_stream.encode():
             self.container.mux(i)
@@ -175,6 +175,7 @@ class VideoRecorder:
             if i:
                 i.join()
 
+        if self.record_audio:
             self.input_stream.close()
 
         self.container.close()
