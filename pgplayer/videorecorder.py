@@ -45,11 +45,11 @@ class VideoRecorder:
             - audio_codec: str. The name of the audio codec to use. Defaults to `aac`
         """
         self.output = output_file
+
         self.size = size
         self.fps = Fraction(frame_rate)
         self.video_codec = video_codec
         self.video_format = video_format
-        self.frame_count = 0
 
         self.record_audio = record_audio
         self.frequency = frequency
@@ -118,7 +118,7 @@ class VideoRecorder:
         """
         Writes video frames to the file.
         """
-        pts = 0
+        start = time.perf_counter()
         while not self.stopped:
             if self.stopped:
                 break
@@ -136,8 +136,7 @@ class VideoRecorder:
             frame = av.VideoFrame.from_ndarray(arr)
             frame = frame.reformat(format=self.video_format)
 
-            frame.pts = pts
-            pts += 1
+            frame.pts = (time.perf_counter() - start) / (1 / float(self.fps))
 
             for i in self.video_stream.encode(frame):
                 self.container.mux(i)
