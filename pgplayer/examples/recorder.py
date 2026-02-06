@@ -8,10 +8,15 @@ screen = pg.display.set_mode((1280, 720), pg.RESIZABLE)
 w, h = screen.get_size()
 clock = pg.time.Clock()
 
-player = VideoPlayer(os.path.join(os.path.dirname(__file__), "video.mp4"))
+player = VideoPlayer(
+    os.path.join(os.path.dirname(__file__), "video.mp4")
+)
 player.start()
 
-recorder = VideoRecorder(os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h))
+recorder = VideoRecorder(
+    os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h)
+)
+recorder.start()
 
 running = True
 while running:

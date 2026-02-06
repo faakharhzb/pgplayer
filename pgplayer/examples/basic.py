@@ -8,7 +8,9 @@ screen = pg.display.set_mode((1280, 720), pg.RESIZABLE)
 w, h = screen.get_size()
 clock = pg.time.Clock()
 
-player = VideoPlayer(os.path.join(os.path.dirname(__file__), "video.mp4"))
+player = VideoPlayer(
+    os.path.join(os.path.dirname(__file__), "video.mp4")
+)
 player.start()
 
 running = True

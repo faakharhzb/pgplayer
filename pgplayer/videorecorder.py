@@ -71,8 +71,7 @@ class VideoRecorder:
                 self.frequency, channels=self.channels, dtype=np.float32
             )
 
-            self.audio_thread = threading.Thread(target=self._record_audio, daemon=True)
-            self.audio_thread.start()
+            self.audio_thread = None
         else:
             self.audio_stream = None
             self.input_stream = None
@@ -80,14 +79,29 @@ class VideoRecorder:
 
         self.video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
 
-        self.video_stream = self.container.add_stream(self.video_codec, self.fps)
+        self.video_stream = self.container.add_stream(
+            self.video_codec, self.fps
+        )
         self.video_stream.width = self.size[0]
         self.video_stream.height = self.size[1]
         self.video_stream.pix_fmt = self.video_format
 
         self.stopped = False
+        self.frame_thread = None
 
-        self.frame_thread = threading.Thread(target=self._write_frame, daemon=True)
+    def start(self) -> None:
+        """
+        Start the video recorder.
+        """
+        if self.record_audio:
+            self.audio_thread = threading.Thread(
+                target=self._record_audio, daemon=True
+            )
+            self.audio_thread.start()
+
+        self.frame_thread = threading.Thread(
+            target=self._write_frame, daemon=True
+        )
         self.frame_thread.start()
 
     def _record_audio(self) -> None:
@@ -98,10 +112,15 @@ class VideoRecorder:
 
         pts = 0
         while not self.stopped:
-            if not self.input_stream.stopped or self.input_stream.closed:
+            if (
+                not self.input_stream.stopped
+                or self.input_stream.closed
+            ):
                 data, overflowed = self.input_stream.read(1024)
                 if overflowed:
-                    raise OverflowError("Audio input stream overflowed.")
+                    raise OverflowError(
+                        "Audio input stream overflowed."
+                    )
 
                 data = np.ascontiguousarray(data.T)
 
@@ -137,7 +156,9 @@ class VideoRecorder:
 
             buf = pg.image.tobytes(surf, "RGBA")
 
-            frame = av.VideoFrame.from_bytes(buf, self.size[0], self.size[1], "rgba")
+            frame = av.VideoFrame.from_bytes(
+                buf, self.size[0], self.size[1], "rgba"
+            )
             frame = frame.reformat(format=self.video_format)
 
             now = int((time.perf_counter() - start) * float(self.fps))

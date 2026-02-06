@@ -3,7 +3,6 @@ import shutil
 import time
 import threading
 import subprocess
-from urllib.parse import urlparse
 
 import pygame as pg
 from pygame.typing import Point
@@ -38,12 +37,6 @@ class VideoPlayer:
             - frequency: int. The frequency of the audio. Defaults to 44100.
         """
         self.source = self._parse_source(source)
-        print("\n\n\n\n")
-        print(self.source)
-        self.opts = {
-            "headers": "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
-        }
-
         self.speed = max(0.1, min(8.0, speed))
         self.volume = max(0, min(1.0, volume))
         self.loop = max(0, loop)
@@ -51,7 +44,7 @@ class VideoPlayer:
         self.play_audio = play_audio
 
         if self.play_audio:
-            self.audio_container = av.open(self.source, options=self.opts)
+            self.audio_container = av.open(self.source)
             self.audio_stream = self.audio_container.streams.audio
         else:
             self.audio_container = None
@@ -72,14 +65,17 @@ class VideoPlayer:
         else:
             self.has_audio = False
 
-        self.video_container = av.open(self.source, options=self.opts)
+        self.video_container = av.open(self.source)
         self.video_stream = self.video_container.streams.video[0]
 
-        self.fps = self.video_stream.average_rate
-        self.fps = float(self.fps.numerator / self.fps.denominator)
+        self.fps = float(self.video_stream.average_rate)
 
-        self.duration = self.video_stream.duration * self.video_stream.time_base
-        self.duration = self.duration.numerator / self.duration.denominator
+        self.duration = (
+            self.video_stream.duration * self.video_stream.time_base
+        )
+        self.duration = (
+            self.duration.numerator / self.duration.denominator
+        )
 
         self.w = self.video_stream.coded_width
         self.h = self.video_stream.coded_height
@@ -145,7 +141,9 @@ class VideoPlayer:
                 self.pause_event.wait()
 
                 with self.audio_pts_lock:
-                    self.audio_pts = (frame.pts * float(frame.time_base)) / self.speed
+                    self.audio_pts = (
+                        frame.pts * float(frame.time_base)
+                    ) / self.speed
                     ## this is for debugging purposes
                     # print(
                     #     f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts:.3f}"
@@ -158,12 +156,18 @@ class VideoPlayer:
                 data = np.ascontiguousarray(data)
 
                 if self.speed != 1:
-                    indices = np.arange(0, len(data), self.speed).astype(int)
+                    indices = np.arange(
+                        0, len(data), self.speed
+                    ).astype(int)
                     indices = indices[indices < len(data)]
 
                     data = data[indices]
 
-                if self.stream.closed or self.stopped or not self.stream.active:
+                if (
+                    self.stream.closed
+                    or self.stopped
+                    or not self.stream.active
+                ):
                     self.stop()
 
                 self.stream.write(data)
@@ -241,7 +245,9 @@ class VideoPlayer:
                 target=self._audio_process, daemon=True
             )
 
-        self.video_thread = threading.Thread(target=self._video_process, daemon=True)
+        self.video_thread = threading.Thread(
+            target=self._video_process, daemon=True
+        )
 
         if self.has_audio and self.play_audio:
             self.audio_thread.start()
