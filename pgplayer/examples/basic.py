@@ -9,7 +9,7 @@ w, h = screen.get_size()
 clock = pg.time.Clock()
 
 player = VideoPlayer(
-    os.path.join(os.path.dirname(__file__), "video.mp4")
+    os.path.join(os.path.dirname(__file__), "video.mp4"), video_size=(w, h)
 )
 player.start()
 

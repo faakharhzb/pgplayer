@@ -9,13 +9,11 @@ w, h = screen.get_size()
 clock = pg.time.Clock()
 
 player = VideoPlayer(
-    os.path.join(os.path.dirname(__file__), "video.mp4")
+    os.path.join(os.path.dirname(__file__), "video.mp4"), video_size=(w, h)
 )
 player.start()
 
-recorder = VideoRecorder(
-    os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h)
-)
+recorder = VideoRecorder(os.path.join(os.path.dirname(__file__), "file.mp4"), (w, h))
 recorder.start()
 
 running = True

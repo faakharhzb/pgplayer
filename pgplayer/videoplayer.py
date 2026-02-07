@@ -17,9 +17,16 @@ class VideoPlayer:
         self,
         source: str,
         speed: float = 1,
+        frame_rate: int = 30,
+        video_size: tuple[int, int] = (640, 480),
+        pixel_format: str = "rgb24",
+        video_codec: str = "hx264",
         volume: float = 1,
         loop: int = 1,
         frequency: int = 44100,
+        channels: int = 2,
+        channel_layout: str = "stereo",
+        audio_codec: str = "aac",
         play_audio: bool = True,
     ) -> None:
         """
@@ -30,75 +37,241 @@ class VideoPlayer:
 
             - speed: float. The playback speed for the video. Defaults to 1.
 
+            - frame_rate: int | None. The default frame rate of the video. Defaults to 30 FPS.
+
+            - video_size: tuple[int, int]. The default size of the video in pixels. Defaults to `640x480`.
+
+            - pixel_format: str. The pixel format of the video frames. Defaults to `rgb24`.
+
+            - video_codec: str. The video codec to use. Defaults to `hx264`.
+
             - volume: float. A value between 0 and 1. Defaults to 1.
 
             - loop: int. The amount of times the video will loop. Video will repeat forever if loop = 0. Defaults to 1.
 
             - frequency: int. The frequency of the audio. Defaults to 44100.
+
+            - channels: int. The number of audio channels. Defaults to 2.
+
+            - channel_layout: str. The layout of the audio channels. Defaults to `stereo`.
+
+            - audio_codec: str. The audio codec to use. Defaults to `aac`.
+
+            - play_audio: bool. Whether or not the audio will play. Defaults to `True`.
         """
-        self.source = self._parse_source(source)
-        self.speed = max(0.1, min(8.0, speed))
-        self.volume = max(0, min(1.0, volume))
-        self.loop = max(0, loop)
-        self.frequency = frequency
-        self.play_audio = play_audio
+        self._source = self._parse_source(source)
+        self._speed = max(0.1, min(8.0, speed))
 
-        if self.play_audio:
-            self.audio_container = av.open(self.source)
-            self.audio_stream = self.audio_container.streams.audio
+        self._fps = frame_rate
+        self._size = video_size
+        self._pixel_format = pixel_format
+        self._video_codec = video_codec
+
+        self._volume = max(0, min(1.0, volume))
+        self._loop = max(0, loop)
+        self._frequency = frequency
+        self._channels = channels
+        self._channel_layout = channel_layout
+        self._audio_codec = audio_codec
+        self._play_audio = play_audio
+
+        self._audio_opts = {
+            "sample_rate": str(self._frequency),
+            "channels": str(self._channels),
+            "channel_layout": self._channel_layout,
+            "codec": self._audio_codec,
+        }
+        self._video_opts = {
+            "video_size": f"{self._size[0]}x{self._size[1]}",
+            "framerate": str(self._fps),
+            "pixel_format": self._pixel_format,
+            "codec": self._video_codec,
+        }
+
+        if self._play_audio:
+            self._audio_container = av.open(self._source, options=self._audio_opts)
+            self._audio_stream = self._audio_container.streams.audio
         else:
-            self.audio_container = None
-            self.audio_stream = None
+            self._audio_container = None
+            self._audio_stream = None
 
-        if self.audio_stream and self.play_audio:
-            self.audio_stream = self.audio_stream[0]
-            self.stream = sd.OutputStream(
-                samplerate=self.frequency,
-                channels=self.audio_stream.channels,
+        if self._audio_stream and self._play_audio:
+            self._audio_stream = self._audio_stream[0]
+            self._stream = sd.OutputStream(
+                samplerate=self._frequency,
+                channels=self._audio_stream.channels,
                 dtype=np.float32,
             )
-            self.resampler = AudioResampler(
-                "fltp", self.audio_stream.layout.name, self.frequency
+            self._resampler = AudioResampler(
+                "fltp", self._audio_stream.layout.name, self._frequency
             )
 
-            self.has_audio = True
+            self._has_audio = True
         else:
-            self.has_audio = False
+            self._has_audio = False
 
-        self.video_container = av.open(self.source)
-        self.video_stream = self.video_container.streams.video[0]
+        self._video_container = av.open(self._source, options=self._video_opts)
+        self._video_stream = self._video_container.streams.video[0]
 
-        self.fps = float(self.video_stream.average_rate)
-
-        self.duration = (
-            self.video_stream.duration * self.video_stream.time_base
-        )
-        self.duration = (
-            self.duration.numerator / self.duration.denominator
+        self._fps = float(self._video_stream.average_rate)
+        self._duration = float(
+            self._video_stream.duration * self._video_stream.time_base
         )
 
-        self.w = self.video_stream.coded_width
-        self.h = self.video_stream.coded_height
-        self.size = (self.w, self.h)
+        self._w = self._video_stream.width
+        self._h = self._video_stream.height
+        self._size = (self._w, self._h)
 
-        self.audio_loop_count = 0
-        self.video_loop_count = 0
+        self._audio_loop_count = 0
+        self._video_loop_count = 0
 
-        self.paused = False
-        self.stopped = False
+        self._paused = False
+        self._stopped = False
 
-        self.frame = pg.Surface((self.w, self.h))
+        self._frame = pg.Surface((self._w, self._h))
 
-        self.audio_thread = None
-        self.video_thread = None
+        self._audio_thread = None
+        self._video_thread = None
 
-        self.pause_event = threading.Event()
-        self.pause_event.set()
+        self._pause_event = threading.Event()
+        self._pause_event.set()
 
-        self.frame_lock = threading.Lock()
+        self._frame_lock = threading.Lock()
 
-        self.audio_pts_lock = threading.Lock()
-        self.audio_pts = 0.0
+        self._audio_pts_lock = threading.Lock()
+        self._audio_pts = 0.0
+
+    @property
+    def source(self) -> str:
+        """
+        The source of the video (read-only).
+        """
+        return self._source
+
+    @property
+    def speed(self) -> float:
+        """
+        The speed at which the video plays (read-only).
+        """
+        return self._speed
+
+    @property
+    def fps(self) -> int:
+        """
+        The FPS of the video (read-only).
+        """
+        return self._fps
+
+    @property
+    def width(self) -> int:
+        """
+        The width of the video in pixels (read-only).
+        """
+        return self._w
+
+    @property
+    def height(self) -> int:
+        """
+        The height of the video in pixels (read-only).
+        """
+        return self._h
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """
+        The size of the video in pixels (read-only).
+        """
+        return self._size
+
+    @property
+    def pixel_format(self) -> str:
+        """
+        The pixel format of the video (read-only).
+        """
+        return self._pixel_format
+
+    @property
+    def video_codec(self) -> str:
+        """
+        The codec of the video (read-only).
+        """
+        return self._video_codec
+
+    @property
+    def volume(self) -> float:
+        """
+        The volume at which the audio plays (read-only).
+        """
+
+    @property
+    def loop(self) -> int:
+        """
+        The number of times the video will loop (read-only).
+        """
+        return self._loop
+
+    @property
+    def frequency(self) -> int:
+        """
+        The frequency of the audio (read-only).
+        """
+        return self._frequency
+
+    @property
+    def channels(self) -> str:
+        """
+        The number of audio channels (read-only).
+        """
+        return self._channels
+
+    @property
+    def channel_layout(self) -> str:
+        """
+        The layout of the audio channels (read-only).
+        """
+        return self._channel_layout
+
+    @property
+    def audio_codec(self) -> str:
+        """
+        The codec of the audio (read-only).
+        """
+        return self._audio_codec
+
+    @property
+    def play_audio(self) -> bool:
+        """
+        Whether or not the audio will play (read-only).
+        """
+        return self._play_audio
+
+    @property
+    def has_audio(self) -> bool:
+        """
+        Whether or not the video file contains audio (read-only).
+        """
+        return self._has_audio
+
+    @property
+    def duration(self) -> float:
+        """
+        The duration of the video in seconds (read-only).
+        """
+        return self._duration
+
+    @property
+    def paused(self) -> bool:
+        """
+        Whether or not the video playback is paused (read-only).
+        """
+        return self._paused
+
+    @property
+    def stopped(self) -> bool:
+        """
+        Whether or not the video player has been stopped (read-only).
+        """
+        return self._stopped
 
     def _parse_source(self, source: str):
         if os.path.exists(source):
@@ -131,50 +304,42 @@ class VideoPlayer:
             return source
 
     def _audio_process(self) -> None:
-        self.stream.start()
+        self._stream.start()
 
-        while not self.stopped:
-            for frame in self.audio_container.decode(audio=0):
-                if self.stopped:
+        while not self._stopped:
+            for frame in self._audio_container.decode(audio=0):
+                if self._stopped:
                     break
 
-                self.pause_event.wait()
+                self._pause_event.wait()
 
-                with self.audio_pts_lock:
-                    self.audio_pts = (
-                        frame.pts * float(frame.time_base)
-                    ) / self.speed
+                with self._audio_pts_lock:
+                    self._audio_pts = (frame.pts * float(frame.time_base)) / self._speed
                     ## this is for debugging purposes
                     # print(
-                    #     f"{frame.pts} * {float(frame.time_base)} = {self.audio_pts:.3f}"
+                    #     f"{frame.pts} * {float(frame.time_base)} = {self._audio_pts:.3f}"
                     # )
 
-                frame = self.resampler.resample(frame)[0]
+                frame = self._resampler.resample(frame)[0]
                 data = frame.to_ndarray().astype(np.float32)
                 data = np.transpose(data)
-                data *= self.volume
+                data *= self._volume
                 data = np.ascontiguousarray(data)
 
-                if self.speed != 1:
-                    indices = np.arange(
-                        0, len(data), self.speed
-                    ).astype(int)
+                if self._speed != 1:
+                    indices = np.arange(0, len(data), self._speed).astype(int)
                     indices = indices[indices < len(data)]
 
                     data = data[indices]
 
-                if (
-                    self.stream.closed
-                    or self.stopped
-                    or not self.stream.active
-                ):
+                if self._stream.closed or self._stopped or not self._stream.active:
                     self.stop()
 
-                self.stream.write(data)
+                self._stream.write(data)
 
-            self.audio_loop_count += 1
-            if self.audio_loop_count < self.loop or self.loop == 0:
-                self.audio_container.seek(0)
+            self._audio_loop_count += 1
+            if self._audio_loop_count < self._loop or self._loop == 0:
+                self._audio_container.seek(0)
             else:
                 self.stop()
 
@@ -182,21 +347,21 @@ class VideoPlayer:
         """
         Extract video frames and turn them into pygame Surfaces in a loop
         """
-        while not self.stopped:
+        while not self._stopped:
             last_time = 0
-            for i in self.video_container.decode(video=0):
-                self.pause_event.wait()
+            for i in self._video_container.decode(video=0):
+                self._pause_event.wait()
 
-                if self.stopped:
+                if self._stopped:
                     break
 
-                with self.audio_pts_lock:
-                    if self.audio_pts:
-                        audio_pts = self.audio_pts
+                with self._audio_pts_lock:
+                    if self._audio_pts:
+                        audio_pts = self._audio_pts
                     else:
                         audio_pts = 0
 
-                pts = float(i.pts * i.time_base) / self.speed
+                pts = float(i.pts * i.time_base) / self._speed
                 delay = pts - audio_pts
 
                 if delay > 0.005:
@@ -205,21 +370,21 @@ class VideoPlayer:
                     # frame is too late so drop it
                     continue
 
-                if pts - last_time < 1 / (self.fps * self.speed):
+                if pts - last_time < 1 / (self._fps * self._speed):
                     continue
 
                 frame = i.to_ndarray(format="rgb24")
                 frame = np.transpose(frame, (1, 0, 2))
                 frame = pg.surfarray.make_surface(frame)
 
-                with self.frame_lock:
-                    self.frame = frame
+                with self._frame_lock:
+                    self._frame = frame
 
-                time.sleep(1 / self.fps)
+                time.sleep(1 / self._fps)
 
-            self.video_loop_count += 1
-            if self.video_loop_count < self.loop or self.loop == 0:
-                self.video_container.seek(0)
+            self._video_loop_count += 1
+            if self._video_loop_count < self._loop or self._loop == 0:
+                self._video_container.seek(0)
             else:
                 self.stop()
 
@@ -228,31 +393,29 @@ class VideoPlayer:
         Get the latest frame from the video as a pygame Surface.
 
         Params:
-            - size: Point. The size of the surface to return. If `None`, the size will be the default size of the video. Defaults to `None`
+            - size: Point. The size of the surface to return. If `None`, the size will be the default size of the video frame. Defaults to `None`.
         """
-        with self.frame_lock:
-            if size and self.size != size:
-                self.frame = pg.transform.scale(self.frame, size)
+        with self._frame_lock:
+            if size and self._size != size:
+                self._frame = pg.transform.scale(self._frame, size)
 
-            return self.frame
+            return self._frame
 
     def start(self) -> None:
         """
         Starts playing the video and audio.
         """
-        if self.has_audio and self.play_audio:
-            self.audio_thread = threading.Thread(
+        if self._has_audio and self._play_audio:
+            self._audio_thread = threading.Thread(
                 target=self._audio_process, daemon=True
             )
 
-        self.video_thread = threading.Thread(
-            target=self._video_process, daemon=True
-        )
+        self._video_thread = threading.Thread(target=self._video_process, daemon=True)
 
-        if self.has_audio and self.play_audio:
-            self.audio_thread.start()
+        if self._has_audio and self._play_audio:
+            self._audio_thread.start()
 
-        self.video_thread.start()
+        self._video_thread.start()
 
     def set_volume(self, volume: float) -> None:
         """
@@ -261,7 +424,7 @@ class VideoPlayer:
         Params:
             - volume: float. A value between 0 and 1.
         """
-        self.volume = max(0, min(1.0, volume))
+        self._volume = max(0, min(1.0, volume))
 
     def increase_volume(self, value: float) -> None:
         """
@@ -270,7 +433,7 @@ class VideoPlayer:
         Params:
             - value: float. The amount to increase the volume by.
         """
-        self.set_volume(self.volume + value)
+        self.set_volume(self._volume + value)
 
     def decrease_volume(self, value: float) -> None:
         """
@@ -279,7 +442,7 @@ class VideoPlayer:
         Params:
             - value: float. The amount to decrease the volume by.
         """
-        self.set_volume(self.volume - value)
+        self.set_volume(self._volume - value)
 
     def set_playback_speed(self, value: float) -> None:
         """
@@ -288,7 +451,7 @@ class VideoPlayer:
         Params:
             - value: float. The value to set the speed as.
         """
-        self.speed = min(8.0, max(0.1, value))
+        self._speed = min(8.0, max(0.1, value))
 
     def increase_playback_speed(self, value: float) -> None:
         """
@@ -297,7 +460,7 @@ class VideoPlayer:
         Params:
             - value: float. The amount to increase the playback speed by.
         """
-        self.set_playback_speed(self.speed + value)
+        self.set_playback_speed(self._speed + value)
 
     def decrease_playback_speed(self, value: float) -> None:
         """
@@ -306,42 +469,42 @@ class VideoPlayer:
         Params:
             - value: float. The amount to decrease the playback speed by.
         """
-        self.set_playback_speed(self.speed - value)
+        self.set_playback_speed(self._speed - value)
 
     def toggle_pause(self) -> None:
         """Pauses or resumes the audio and video."""
-        if self.pause_event.is_set():
-            self.pause_event.clear()
-            self.paused = True
+        if self._pause_event.is_set():
+            self._pause_event.clear()
+            self._paused = True
         else:
-            self.pause_event.set()
-            self.paused = False
+            self._pause_event.set()
+            self._paused = False
 
     def stop(self) -> None:
         """Stops the VideoPlayer class."""
-        if not self.stopped:
+        if not self._stopped:
             # # for debugging purposes
-            # print(f"Duration: {self.duration / self.speed}")
-            # with self.audio_pts_lock:
-            #     print(f"pts duration: {self.audio_pts}")
+            # print(f"Duration: {self._duration / self._speed}")
+            # with self._audio_pts_lock:
+            #     print(f"pts duration: {self._audio_pts}")
 
-            self.stopped = True
+            self._stopped = True
 
-            if not self.pause_event.is_set():
-                self.pause_event.set()
+            if not self._pause_event.is_set():
+                self._pause_event.set()
 
-            for i in [self.audio_thread, self.video_thread]:
+            for i in [self._audio_thread, self._video_thread]:
                 try:
                     i.join()
                 except Exception:
                     pass
 
-            if self.has_audio and self.play_audio:
-                self.audio_container.close()
-                self.stream.abort()
-                self.stream.stop()
-                self.stream.close()
+            if self._has_audio and self._play_audio:
+                self._audio_container.close()
+                self._stream.abort()
+                self._stream.stop()
+                self._stream.close()
 
-            self.video_container.close()
+            self._video_container.close()
 
             return
