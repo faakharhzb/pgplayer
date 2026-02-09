@@ -138,8 +138,9 @@ class VideoPlayer:
 
         self._frame_lock = threading.Lock()
 
-        self._audio_pts_lock = threading.Lock()
-        self._audio_pts = 0.0
+        self._time_lock = threading.Lock()
+        self._time = 0.0
+        self._idx = 0
 
     @property
     def source(self) -> str:
@@ -213,7 +214,7 @@ class VideoPlayer:
     @property
     def frequency(self) -> int:
         """
-        The frequency of the audio (read-only).
+        The frequency of the audio in hertz (read-only).
         """
         return self._frequency
 
@@ -313,12 +314,9 @@ class VideoPlayer:
 
                 self._pause_event.wait()
 
-                with self._audio_pts_lock:
-                    self._audio_pts = (frame.pts * float(frame.time_base)) / self._speed
-                    ## this is for debugging purposes
-                    # print(
-                    #     f"{frame.pts} * {float(frame.time_base)} = {self._audio_pts:.3f}"
-                    # )
+                with self._time_lock:
+                    self._idx = frame.pts
+                    self._time = frame.pts * float(frame.time_base)
 
                 frame = self._resampler.resample(frame)[0]
                 data = frame.to_ndarray().astype(np.float32)
@@ -333,7 +331,7 @@ class VideoPlayer:
                     data = data[indices]
 
                 if self._stream.closed or self._stopped or not self._stream.active:
-                    self.stop()
+                    break
 
                 self._stream.write(data)
 
@@ -355,23 +353,25 @@ class VideoPlayer:
                 if self._stopped:
                     break
 
-                with self._audio_pts_lock:
-                    if self._audio_pts:
-                        audio_pts = self._audio_pts
-                    else:
-                        audio_pts = 0
+                with self._time_lock:
+                    audio_pts = self._time
 
                 pts = float(i.pts * i.time_base) / self._speed
                 delay = pts - audio_pts
 
                 if delay > 0.005:
                     time.sleep(min(delay, 0.005))
-                elif delay < -0.1:
+                elif delay < -0.005:
                     # frame is too late so drop it
                     continue
 
                 if pts - last_time < 1 / (self._fps * self._speed):
                     continue
+
+                if not self.has_audio or not self.play_audio:
+                    with self._time_lock:
+                        self._time = pts
+                        self._idx = i.pts
 
                 frame = i.to_ndarray(format="rgb24")
                 frame = np.transpose(frame, (1, 0, 2))
@@ -416,6 +416,104 @@ class VideoPlayer:
             self._audio_thread.start()
 
         self._video_thread.start()
+
+    def move(self, timestamp: float) -> None:
+        """
+        Move the audio and video to the given timestamp.
+
+        Params:
+            - timestamp: float. The time to move the playback to in seconds.
+        """
+        _time = min(self._duration, max(0, timestamp))
+        idx = int(_time // self._video_stream.time_base)
+
+        was_playing = self._paused
+        if was_playing:
+            self.toggle_pause()
+
+        if self._play_audio and self._has_audio:
+            self._audio_container.seek(idx, stream=self._audio_stream)
+
+        self._video_container.seek(idx, stream=self._video_stream)
+
+        with self._time_lock:
+            self._time = _time
+            self._idx = idx
+
+        if was_playing:
+            self.toggle_pause()
+
+    def forward(self, seconds: float) -> None:
+        """
+        Forward the audio and video playback by the given value.
+
+        Params:
+            - seconds: float. The number of seconds to forward by.
+        """
+        with self._time_lock:
+            current_time = self._time
+
+        self.move(current_time + seconds)
+
+    def rewind(self, seconds: float) -> None:
+        """
+        Rewind the audio and video playback by the given value.
+
+        Params:
+            - seconds: float. The number of seconds to rewind by.
+        """
+        with self._time_lock:
+            current_time = self._time
+        self.move(current_time - seconds)
+
+    def move_frame(self, frame_number: int) -> None:
+        """
+        Move the audio and video to the given frame number.
+
+        Params:
+            - frame_number: into. The frame to move the playback to.
+        """
+        idx = min(self._duration * self._video_stream.time_base, max(0, frame_number))
+        _time = idx / self._video_stream.time_base
+
+        if not self.paused:
+            self.toggle_pause()
+
+        if self._play_audio and self._has_audio:
+            self._audio_container.seek(idx, stream=self._audio_stream)
+
+        self._video_container.seek(idx, stream=self._video_stream)
+
+        with self._time_lock:
+            self._time = _time
+            self._idx = idx
+
+        if self.paused:
+            self.toggle_pause()
+
+    def forward_frame(self, frames: int) -> None:
+        """
+        Forward the audio and video playback by the given frames.
+
+        Params:
+            - frames: int. The number of frames to forward by.
+        """
+        with self._time_lock:
+            current_frame = self._idx
+
+        self.move_frame(current_frame + frames)
+
+    def rewind_frame(self, frames: int) -> None:
+        """
+        Rewind the audio and video playback by the given frames.
+
+        Params:
+            - frames: int. The number of frames to rewind by.
+        """
+        with self._time_lock:
+            current_frame = self._idx
+
+        self.move_frame(current_frane - frames)
 
     def set_volume(self, volume: float) -> None:
         """
@@ -485,8 +583,8 @@ class VideoPlayer:
         if not self._stopped:
             # # for debugging purposes
             # print(f"Duration: {self._duration / self._speed}")
-            # with self._audio_pts_lock:
-            #     print(f"pts duration: {self._audio_pts}")
+            # with self._time_lock:
+            #     print(f"pts duration: {self._time}")
 
             self._stopped = True
 

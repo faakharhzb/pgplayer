@@ -21,6 +21,7 @@ class VideoRecorder:
         record_audio: bool = False,
         frequency: int = 44100,
         channels: int = 2,
+        channel_layout: str = "stereo",
         audio_codec: str = "aac",
     ) -> None:
         """
@@ -43,135 +44,219 @@ class VideoRecorder:
 
             - channels: int. The amount of audio channels. Defaults to 2.
 
+            - channel_layout: str. The layout of the audio channels. Defaults to `stereo`.
+
             - audio_codec: str. The name of the audio codec to use. Defaults to `aac`
         """
-        self.output = output_file
+        self._output = output_file
 
-        self.size = size
-        self.fps = Fraction(frame_rate)
-        self.video_codec = video_codec
-        self.video_format = video_format
+        self._size = size
+        self._fps = Fraction(frame_rate)
+        self._video_codec = video_codec
+        self._pixel_format = video_format
 
-        self.record_audio = record_audio
-        self.frequency = frequency
-        self.channels = channels
-        self.audio_codec = audio_codec
+        self._record_audio = record_audio
+        self._frequency = frequency
+        self._channels = channels
+        self._channel_layout = channel_layout
+        self._audio_codec = audio_codec
 
-        self.container = av.open(self.output, "w")
+        self._container = av.open(self._output, "w")
 
-        if self.record_audio:
-            self.audio_stream = self.container.add_stream(
-                self.audio_codec, self.frequency
+        if self._record_audio:
+            self._audio_stream = self._container.add_stream(
+                self._audio_codec, self._frequency
             )
-            self.audio_stream.layout = "stereo"
-            self.audio_stream.format = "fltp"
-            self.audio_stream.time_base = Fraction(1, self.frequency)
+            self._audio_stream.layout = self._channel_layout
+            self._audio_stream.format = "fltp"
+            self._audio_stream.time_base = Fraction(1, self._frequency)
 
-            self.input_stream = sd.InputStream(
-                self.frequency, channels=self.channels, dtype=np.float32
+            self._input_stream = sd.InputStream(
+                self._frequency, channels=self._channels, dtype=np.float32
             )
 
-            self.audio_thread = None
+            self._audio_thread = None
         else:
-            self.audio_stream = None
-            self.input_stream = None
-            self.audio_thread = None
+            self._audio_stream = None
+            self._input_stream = None
+            self._audio_thread = None
 
-        self.video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
+        self._video_frames: queue.Queue[pg.Surface] = queue.Queue(50)
 
-        self.video_stream = self.container.add_stream(
-            self.video_codec, self.fps
-        )
-        self.video_stream.width = self.size[0]
-        self.video_stream.height = self.size[1]
-        self.video_stream.pix_fmt = self.video_format
+        self._video_stream = self._container.add_stream(self._video_codec, self._fps)
+        self._video_stream.width = self._size[0]
+        self._video_stream.height = self._size[1]
+        self._video_stream.pix_fmt = self._pixel_format
 
-        self.stopped = False
-        self.frame_thread = None
+        self._stopped = False
+
+        self._frame_thread = None
+
+    @property
+    def output_file(self) -> str:
+        """
+        The name of the output file (read-only).
+        """
+        return self._output
+
+    @property
+    def width(self) -> int:
+        """
+        The width of the video in pixels(read-only).
+        """
+        return self._size[0]
+
+    @property
+    def height(self) -> int:
+        """
+        The height of the video in pixels (read-only).
+        """
+        return self._size[1]
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """
+        The size of the video in pixels (read-only).
+        """
+        return self._size
+
+    @property
+    def fps(self) -> int:
+        """
+        The FPS of the video (read-only).
+        """
+        return int(self._fps)
+
+    @property
+    def video_codec(self) -> str:
+        """
+        The codec of the video (read-only).
+        """
+        return self._video_codec
+
+    @property
+    def pixel_format(self) -> str:
+        """
+        The pixel format of the video (read-only).
+        """
+        return self._pixel_format
+
+    @property
+    def frequency(self) -> int:
+        """
+        The frequency of the audio in hertz (read-only).
+        """
+        return self._frequency
+
+    @property
+    def channels(self) -> int:
+        """
+        The number of audio channels (read-only).
+        """
+        return self._channels
+
+    @property
+    def channel_layout(self) -> str:
+        """
+        The layout of the audio channels (read-only).
+        """
+        return self._channel_layout
+
+    @property
+    def audio_codec(self) -> str:
+        """
+        The codec of the audio (read-only).
+        """
+        return self._audio_codec
+
+    @property
+    def record_audio(self) -> bool:
+        """
+        Whether or not the audio will be recorded (read-only).
+        """
+        return self._record_audio
+
+    @property
+    def stopped(self) -> bool:
+        """
+        Whether or not the video recording has been stopped(read-only).
+        """
+        return self._stopped
 
     def start(self) -> None:
         """
         Start the video recorder.
         """
-        if self.record_audio:
-            self.audio_thread = threading.Thread(
-                target=self._record_audio, daemon=True
+        if self._record_audio:
+            self._audio_thread = threading.Thread(
+                target=self._audio_record, daemon=True
             )
-            self.audio_thread.start()
+            self._audio_thread.start()
 
-        self.frame_thread = threading.Thread(
-            target=self._write_frame, daemon=True
-        )
-        self.frame_thread.start()
+        self._frame_thread = threading.Thread(target=self._write_frame, daemon=True)
+        self._frame_thread.start()
 
-    def _record_audio(self) -> None:
+    def _audio_record(self) -> None:
         """
         Gets audio and adds it to the file.
         """
-        self.input_stream.start()
+        self._input_stream.start()
 
         pts = 0
-        while not self.stopped:
-            if (
-                not self.input_stream.stopped
-                or self.input_stream.closed
-            ):
-                data, overflowed = self.input_stream.read(1024)
+        while not self._stopped:
+            if not self._input_stream.stopped or self._input_stream.closed:
+                data, overflowed = self._input_stream.read(1024)
                 if overflowed:
-                    raise OverflowError(
-                        "Audio input stream overflowed."
-                    )
+                    raise OverflowError("Audio input stream overflowed.")
 
                 data = np.ascontiguousarray(data.T)
 
                 frame = av.AudioFrame.from_ndarray(
-                    data, "fltp", self.audio_stream.layout
+                    data, "fltp", self._audio_stream.layout
                 )
 
                 frame.pts = pts
                 pts += frame.samples
 
-                for i in self.audio_stream.encode(frame):
-                    self.container.mux(i)
+                for i in self._audio_stream.encode(frame):
+                    self._container.mux(i)
 
-            for i in self.audio_stream.encode():
-                self.container.mux(i)
+            for i in self._audio_stream.encode():
+                self._container.mux(i)
 
     def _write_frame(self) -> None:
         """
         Writes video frames to the file.
         """
         start = time.perf_counter()
-        while not self.stopped:
-            if self.stopped:
+        while not self._stopped:
+            if self._stopped:
                 break
 
             try:
-                surf = self.video_frames.get(timeout=0.1)
+                surf = self._video_frames.get(timeout=0.1)
             except queue.Empty:
                 continue
 
-            if surf.get_size() != self.size:
-                surf = pg.transform.scale(surf, self.size)
+            if surf.get_size() != self._size:
+                surf = pg.transform.scale(surf, self._size)
 
             buf = pg.image.tobytes(surf, "RGBA")
 
-            frame = av.VideoFrame.from_bytes(
-                buf, self.size[0], self.size[1], "rgba"
-            )
-            frame = frame.reformat(format=self.video_format)
+            frame = av.VideoFrame.from_bytes(buf, self._size[0], self._size[1], "rgba")
+            frame = frame.reformat(format=self._pixel_format)
 
-            now = int((time.perf_counter() - start) * float(self.fps))
+            now = int((time.perf_counter() - start) * float(self._fps))
             frame.pts = now
-            frame.time_base = Fraction(1, self.fps)
+            frame.time_base = Fraction(1, self._fps)
 
-            for i in self.video_stream.encode(frame):
-                self.container.mux(i)
+            for i in self._video_stream.encode(frame):
+                self._container.mux(i)
 
             time.sleep(float(frame.time_base))
 
-        for i in self.video_stream.encode():
-            self.container.mux(i)
+        for i in self._video_stream.encode():
+            self._container.mux(i)
 
     def write_frame(self, frame: pg.Surface) -> None:
         """
@@ -181,22 +266,22 @@ class VideoRecorder:
             - frame: pg.Surface. The surface to add to to the video.
         """
         try:
-            self.video_frames.put(frame, False)
+            self._video_frames.put(frame, False)
         except queue.Full:
-            self.video_frames.get_nowait()
-            self.video_frames.put(frame, False)
+            self._video_frames.get_nowait()
+            self._video_frames.put(frame, False)
 
     def stop(self) -> None:
         """
         Stop the recorder.
         """
-        self.stopped = True
+        self._stopped = True
 
-        for i in [self.frame_thread, self.audio_thread]:
+        for i in [self._frame_thread, self._audio_thread]:
             if i:
                 i.join()
 
-        if self.record_audio:
-            self.input_stream.close()
+        if self._record_audio:
+            self._input_stream.close()
 
-        self.container.close()
+        self._container.close()

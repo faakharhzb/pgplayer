@@ -23,15 +23,26 @@ while running:
             if event.key == pg.K_SPACE:
                 player.toggle_pause()
 
-            if event.key == pg.K_RIGHT:
+            if event.key == pg.K_UP:
                 player.increase_volume(0.05)
-            if event.key == pg.K_LEFT:
+            if event.key == pg.K_DOWN:
                 player.decrease_volume(0.05)
 
             if event.key == pg.K_d:
                 player.increase_playback_speed(0.05)
             if event.key == pg.K_a:
                 player.decrease_playback_speed(0.05)
+
+            if event.key == pg.K_RIGHT:
+                player.forward(5)
+            if event.key == pg.K_LEFT:
+                player.rewind(5)
+
+            if event.key in (pg.K_LCTRL, pg.K_RCTRL):
+                if event.key == pg.K_RIGHT:
+                    player.forward_frame(5)
+                if event.key == pg.K_LEFT:
+                    player.rewind_frame(5)
 
         if event.type == pg.VIDEORESIZE:
             w, h = event.size
