@@ -200,6 +200,8 @@ class VideoRecorder:
         """
         Gets audio and adds it to the file.
         """
+
+        # TODO: Make audio work
         self._input_stream.start()
 
         pts = 0

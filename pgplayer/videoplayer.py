@@ -473,6 +473,9 @@ class VideoPlayer:
         Params:
             - frame_number: into. The frame to move the playback to.
         """
+
+        # TODO: Forwarding frames desyncs audio and video. Fix it.
+
         idx = min(self._duration * self._video_stream.time_base, max(0, frame_number))
         _time = idx / self._video_stream.time_base
 

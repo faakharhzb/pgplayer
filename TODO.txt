@@ -1,3 +1,0 @@
-Optimize VideoRecorder
-Create proper VideoRecorder class
-Add support for playing youtube videos in VideoPlayer
